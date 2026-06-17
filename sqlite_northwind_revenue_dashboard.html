@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-[#0a0f1d] overflow-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Northwind Revenue Analysis</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- ApexCharts -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <!-- SQL.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['"Playfair Display"', 'Georgia', 'ui-serif', 'serif'],
+                        sans: ['Georgia', 'ui-serif', 'serif'], 
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+        
+        body {
+            font-family: 'Georgia', 'Times New Roman', serif;
+            background-color: #0a0f1d;
+            color: #f1f5f9;
+        }
+
+        /* Beautiful interactive internal scrollbars */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #111a30;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e294b;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #3b82f6;
+        }
+
+        /* Adjust ApexCharts tooltips to match the classic editorial style */
+        .apexcharts-tooltip {
+            font-family: 'Georgia', serif !important;
+            border: 1px solid #1e294b !important;
+            background: #111a30 !important;
+            color: #ffffff !important;
+            border-radius: 0px !important;
+            box-shadow: 4px 4px 0px rgba(10, 15, 29, 0.4) !important;
+        }
+        .apexcharts-tooltip-title {
+            background: #1e294b !important;
+            border-bottom: 1px solid #1e294b !important;
+            color: #ffffff !important;
+            font-weight: bold !important;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col justify-between overflow-hidden">
+
+    <!-- Top Header Control Bar (Fixed height) -->
+    <header class="border-b border-[#1e294b] py-2.5 bg-[#0a0f1d] shrink-0">
+        <div class="max-w-[1600px] mx-auto px-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-xl font-serif font-bold text-white tracking-tight">Revenue Information Dashboard</h1>
+                <p class="text-[10px] italic text-slate-400">Analytic Intelligence by Tran (Sie) Nguyen • Developed for VP of Sales</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div id="db-status" class="text-[10px] uppercase tracking-wider text-slate-400 font-bold flex items-center gap-2 mr-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-slate-500" id="status-dot"></span>
+                    <span id="active-filename" class="text-[9px]">Disconnected</span>
+                </div>
+                
+                <div class="relative inline-block">
+                    <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                    <button class="inline-flex items-center px-3.5 py-1 text-[10px] font-semibold tracking-wider uppercase bg-white hover:bg-slate-100 text-[#0a0f1d] transition-colors gap-2 border border-white">
+                        <i data-lucide="upload" class="w-3 h-3"></i>
+                        Upload Custom DB
+                    </button>
+                </div>
+                
+                <button onclick="loadSampleDatabase()" class="inline-flex items-center px-3.5 py-1 text-[10px] font-semibold tracking-wider uppercase bg-transparent hover:bg-white/5 text-white transition-colors gap-2 border border-slate-700">
+                        <i data-lucide="sparkles" class="w-3 h-3"></i>
+                        Reload Demo
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace (Guaranteed to stretch to remaining window space exactly) -->
+    <main class="grow flex flex-col max-w-[1600px] w-full mx-auto px-6 py-3 justify-center overflow-hidden">
+
+        <!-- Initial Connect Screen (Only visible if automatic load fails) -->
+        <div id="splash-container" class="flex flex-col items-center justify-center text-center py-16 border border-dashed border-[#1e294b] bg-[#111a30] rounded-lg">
+            <div class="w-14 h-14 text-slate-400 mb-4">
+                <i data-lucide="database" class="w-14 h-14 stroke-[1]"></i>
+            </div>
+            <h2 class="text-xl font-serif text-slate-100 mb-1">Database Connection Required</h2>
+            <p class="text-xs text-slate-400 max-w-sm mx-auto mb-5">
+                Drag & drop your Northwind SQLite file anywhere on this window, upload via file browser, or use sample demo data.
+            </p>
+        </div>
+
+        <!-- Scroll-Managed Dashboard Board -->
+        <div id="chart-panel" class="hidden h-full flex flex-col justify-between overflow-hidden">
+            
+            <div id="chart-loader" class="hidden flex items-center justify-center bg-[#0a0f1d] py-6">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            </div>
+
+            <!-- Dashboard Grid (Sized perfectly to fit in 1 window height frame) -->
+            <div class="grid grid-cols-12 gap-4 h-[calc(100vh-100px)] overflow-hidden pb-1">
+                
+                <!-- TOP LEFT: CUSTOMERS ANALYSIS (Interactive Scrollable Card) -->
+                <div class="col-span-6 flex flex-col bg-[#111a30] border border-[#1e294b] p-4 justify-between h-full overflow-hidden">
+                    <div class="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                        <div class="flex justify-between items-baseline border-b border-[#1e294b] pb-2 mb-2">
+                            <h2 class="text-sm font-serif font-bold text-white uppercase tracking-wider">◆ Which customers drive the most revenue?</h2>
+                            <span class="text-[9px] text-slate-400 font-sans tracking-widest">TOP 10 • ALL-TIME</span>
+                        </div>
+                        <div id="horizontal-bar-chart-container" class="h-[210px] w-full"></div>
+                    </div>
+                    
+                    <!-- Customer Analytical KPI Block -->
+                    <div class="grid grid-cols-2 gap-4 pt-3 mt-2 border-t border-[#1e294b] shrink-0">
+                        <div>
+                            <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Top Account</span>
+                            <span class="text-xl font-serif font-bold text-white block mt-0.5 leading-none" id="kpi-top-customer-val">$--</span>
+                            <span class="text-[10px] text-slate-400 italic block mt-1 truncate" id="kpi-top-customer-name">--</span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Top 10 Share</span>
+                            <span class="text-xl font-serif font-bold text-[#b91c1c] block mt-0.5 leading-none" id="kpi-top-customer-share">--%</span>
+                            <span class="text-[10px] text-slate-400 block mt-1 truncate" id="kpi-top-customer-total">of $-- book</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TOP RIGHT: PRODUCT ANALYSIS (Interactive Scrollable Card) -->
+                <div class="col-span-6 flex flex-col bg-[#111a30] border border-[#1e294b] p-4 justify-between h-full overflow-hidden">
+                    <div class="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                        <div class="flex justify-between items-baseline border-b border-[#1e294b] pb-2 mb-2">
+                            <h2 class="text-sm font-serif font-bold text-white uppercase tracking-wider">◆ Which products drive the most revenue?</h2>
+                            <span class="text-[9px] text-slate-400 font-sans tracking-widest">TOP 10 SKUS • AREA = REVENUE</span>
+                        </div>
+                        <div id="treemap-chart-container" class="h-[210px] w-full"></div>
+                    </div>
+
+                    <!-- Product Analytical KPI Block -->
+                    <div class="grid grid-cols-2 gap-4 pt-3 mt-2 border-t border-[#1e294b] shrink-0">
+                        <div>
+                            <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">#1 Product</span>
+                            <span class="text-xl font-serif font-bold text-white block mt-0.5 leading-none" id="kpi-top-product-val">$--</span>
+                            <span class="text-[10px] text-slate-400 italic block mt-1 truncate" id="kpi-top-product-name">--</span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Leader Share</span>
+                            <span class="text-xl font-serif font-bold text-[#b91c1c] block mt-0.5 leading-none" id="kpi-top-product-share">--%</span>
+                            <span class="text-[10px] text-slate-400 block mt-1 truncate" id="kpi-top-product-total">of $-- top 10</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BOTTOM ROW: SYSTEM METRICS GRID -->
+                
+                <!-- Suppliers (Interactive Scrollable Card) -->
+                <div class="col-span-4 flex flex-col bg-[#111a30] border border-[#1e294b] p-3 justify-between h-full overflow-hidden">
+                    <div class="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                        <div class="flex justify-between items-baseline border-b border-[#1e294b] pb-1.5 mb-1.5">
+                            <h2 class="text-xs font-serif font-bold text-white uppercase tracking-wider">◆ Revenue by Supplier</h2>
+                            <span class="text-[8px] text-slate-400 font-sans">COLUMN CHART</span>
+                        </div>
+                        <div id="supplier-chart-container" class="h-[120px] w-full"></div>
+                    </div>
+                    <div class="pt-2 border-t border-[#1e294b] shrink-0">
+                        <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Primary Supplier</span>
+                        <div class="flex justify-between items-baseline mt-0.5">
+                            <span class="text-xs font-serif font-bold text-white truncate max-w-[180px]" id="kpi-top-supplier-name">--</span>
+                            <span class="text-xs font-serif font-bold text-slate-300 shrink-0" id="kpi-top-supplier-val">$--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Employees (Interactive Scrollable Card) -->
+                <div class="col-span-4 flex flex-col bg-[#111a30] border border-[#1e294b] p-3 justify-between h-full overflow-hidden">
+                    <div class="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                        <div class="flex justify-between items-baseline border-b border-[#1e294b] pb-1.5 mb-1.5">
+                            <h2 class="text-xs font-serif font-bold text-white uppercase tracking-wider">◆ Sales Performance</h2>
+                            <span class="text-[8px] text-slate-400 font-sans">FUNNEL PIPELINE</span>
+                        </div>
+                        <div id="funnel-chart-container" class="h-[120px] w-full"></div>
+                    </div>
+                    <div class="pt-2 border-t border-[#1e294b] shrink-0">
+                        <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Top Performer</span>
+                        <div class="flex justify-between items-baseline mt-0.5">
+                            <span class="text-xs font-serif font-bold text-white truncate max-w-[180px]" id="kpi-top-employee-name">--</span>
+                            <span class="text-xs font-serif font-bold text-slate-300 shrink-0" id="kpi-top-employee-val">$--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Boxplot Countries (Interactive Scrollable Card) -->
+                <div class="col-span-4 flex flex-col bg-[#111a30] border border-[#1e294b] p-3 justify-between h-full overflow-hidden">
+                    <div class="overflow-y-auto custom-scrollbar flex-1 pr-1">
+                        <div class="flex justify-between items-baseline border-b border-[#1e294b] pb-1.5 mb-1.5">
+                            <h2 class="text-xs font-serif font-bold text-white uppercase tracking-wider">◆ Geography Order Value</h2>
+                            <span class="text-[8px] text-slate-400 font-sans">BOX PLOT</span>
+                        </div>
+                        <div id="boxplot-chart-container" class="h-[120px] w-full"></div>
+                    </div>
+                    <div class="pt-2 border-t border-[#1e294b] shrink-0">
+                        <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-sans font-bold">Max Single Valuation Area</span>
+                        <div class="flex justify-between items-baseline mt-0.5">
+                            <span class="text-xs font-serif font-bold text-white truncate max-w-[180px]" id="kpi-top-country-name">--</span>
+                            <span class="text-xs font-serif font-bold text-slate-300 shrink-0" id="kpi-top-country-val">$--</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Simple Corporate Footer -->
+    <footer class="border-t border-[#1e294b] py-2 shrink-0 bg-[#070b14]">
+        <div class="max-w-7xl mx-auto px-6 flex justify-between items-center text-[9px] tracking-wide uppercase font-semibold text-slate-500">
+            <span>Designed & Developed by Tran (Sie) Nguyen</span>
+            <span id="execution-time">No Query Logged</span>
+        </div>
+    </footer>
+
+    <!-- Toast Success Notification -->
+    <div id="toast-message" class="fixed bottom-6 right-6 bg-white text-slate-900 text-xs tracking-wider uppercase px-4 py-3 shadow-lg rounded-none hidden z-50">
+        Database Connected
+    </div>
+
+    <!-- Script Implementations -->
+    <script>
+        let SQLInstance = null;
+        let activeDatabase = null;
+        let treemapChart = null;
+        let supplierChart = null;
+        let horizontalBarChart = null;
+        let funnelChart = null;
+        let boxplotChart = null;
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            lucide.createIcons();
+            initDragAndDrop();
+
+            // Warm up client engine web assembly
+            try {
+                SQLInstance = await initSqlJs({
+                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+                });
+                
+                // --- CRUCIAL RECRUITER UPGRADE ---
+                // Automatically generate and run the full demo SQLite relational database on load.
+                // Recruiters won't see a blank screen or need to find a database!
+                loadSampleDatabase();
+            } catch (err) {
+                console.error("SQL Engine launch error: ", err);
+            }
+        });
+
+        function initDragAndDrop() {
+            const fileInput = document.getElementById('db-file-input');
+            
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    processFile(e.target.files[0]);
+                }
+            });
+
+            window.addEventListener('dragover', (e) => e.preventDefault(), false);
+            window.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    processFile(files[0]);
+                }
+            }, false);
+        }
+
+        function processFile(file) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                try {
+                    const uInt8Array = new Uint8Array(this.result);
+                    if (!SQLInstance) throw new Error("SQL engine is warming up. Please wait.");
+                    
+                    activeDatabase = new SQLInstance.Database(uInt8Array);
+                    onSuccess(file.name);
+                } catch (error) {
+                    showToast("Failed to load DB file: " + error.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function onSuccess(dbName) {
+            document.getElementById('splash-container').classList.add('hidden');
+            document.getElementById('chart-panel').classList.remove('hidden');
+            document.getElementById('active-filename').innerText = dbName;
+            
+            const dot = document.getElementById('status-dot');
+            dot.classList.remove('bg-slate-500');
+            dot.classList.add('bg-emerald-500');
+
+            showToast(`Loaded: ${dbName}`);
+            executeQueries();
+        }
+
+        function executeQueries() {
+            if (!activeDatabase) return;
+            
+            const start = performance.now();
+            document.getElementById('chart-loader').classList.remove('hidden');
+
+            const queryProducts = `
+                SELECT 
+                      c.CategoryName, 
+                      p.ProductName, 
+                      ROUND(SUM(od.Quantity * p.Price), 2) AS TotalRevenue 
+                FROM Categories c 
+                JOIN Products p ON c.CategoryID = p.CategoryID 
+                JOIN OrderDetails od ON p.ProductID = od.ProductID 
+                GROUP BY p.ProductID 
+                ORDER BY TotalRevenue DESC;
+            `;
+
+            const querySuppliers = `
+                SELECT
+                     s.SupplierName,
+                     s.Country,
+                     ROUND(SUM(od.Quantity * p.Price), 2) AS Revenue
+                FROM OrderDetails od
+                JOIN Products p ON od.ProductID = p.ProductID
+                JOIN Suppliers s ON p.SupplierID = s.SupplierID
+                GROUP BY s.SupplierID, s.SupplierName, s.Country
+                ORDER BY Revenue DESC;
+            `;
+
+            const queryCustomers = `
+                SELECT 
+                    c.CustomerID,
+                    c.CustomerName,
+                    c.City,
+                    c.Country,
+                    SUM(p.Price * od.Quantity) AS TotalRevenue
+                FROM Customers c
+                JOIN Orders o ON c.CustomerID = o.CustomerID
+                JOIN OrderDetails od ON o.OrderID = od.OrderID
+                JOIN Products p ON od.ProductID = p.ProductID
+                GROUP BY 
+                    c.CustomerID,
+                    c.CustomerName,
+                    c.City,
+                    c.Country
+                ORDER BY TotalRevenue DESC;
+            `;
+
+            const queryEmployees = `
+                SELECT 
+                    e.EmployeeID,
+                    e.FirstName || ' ' || e.LastName AS EmployeeName,
+                    ROUND(COALESCE(SUM(od.Quantity * p.Price), 0), 2) AS Revenue
+                FROM Employees e
+                LEFT JOIN Orders o ON e.EmployeeID = o.EmployeeID
+                LEFT JOIN OrderDetails od ON o.OrderID = od.OrderID
+                LEFT JOIN Products p ON od.ProductID = p.ProductID
+                GROUP BY 
+                    e.EmployeeID, 
+                    e.FirstName, 
+                    e.LastName
+                ORDER BY Revenue DESC;
+            `;
+
+            const queryCountryOrders = `
+                SELECT
+                    c.Country,
+                    o.OrderID,
+                    c.CustomerName,
+                    ROUND(SUM(od.Quantity * p.Price), 2) AS order_value
+                FROM Orders o
+                JOIN Customers c ON o.CustomerID = c.CustomerID
+                JOIN OrderDetails od ON o.OrderID = od.OrderID
+                JOIN Products p ON od.ProductID = p.ProductID
+                GROUP BY
+                    o.OrderID,
+                    c.Country,
+                    c.CustomerName
+                ORDER BY
+                    c.Country,
+                    order_value;
+            `;
+
+            setTimeout(() => {
+                try {
+                    const productsResult = activeDatabase.exec(queryProducts);
+                    const suppliersResult = activeDatabase.exec(querySuppliers);
+                    const customersResult = activeDatabase.exec(queryCustomers);
+                    const employeesResult = activeDatabase.exec(queryEmployees);
+                    const countryOrdersResult = activeDatabase.exec(queryCountryOrders);
+                    
+                    const end = performance.now();
+                    document.getElementById('execution-time').innerText = `Executed all queries in: ${(end - start).toFixed(1)} ms`;
+                    document.getElementById('chart-loader').classList.add('hidden');
+
+                    // 1. Process Customer Analytics
+                    if (customersResult.length > 0) {
+                        const cols = customersResult[0].columns;
+                        const rows = customersResult[0].values.map(row => {
+                            let obj = {};
+                            cols.forEach((col, idx) => { obj[col] = row[idx]; });
+                            return obj;
+                        });
+                        
+                        buildHorizontalBarChart(rows);
+                        calculateCustomerKPIs(rows);
+                    }
+
+                    // 2. Process Product Analytics
+                    if (productsResult.length > 0) {
+                        const cols = productsResult[0].columns;
+                        const rows = productsResult[0].values.map(row => {
+                            let obj = {};
+                            cols.forEach((col, idx) => { obj[col] = row[idx]; });
+                            return obj;
+                        });
+                        buildTreemap(rows);
+                        calculateProductKPIs(rows);
+                    }
+
+                    // 3. Process Supplier Analytics
+                    if (suppliersResult.length > 0) {
+                        const cols = suppliersResult[0].columns;
+                        const rows = suppliersResult[0].values.map(row => {
+                            let obj = {};
+                            cols.forEach((col, idx) => { obj[col] = row[idx]; });
+                            return obj;
+                        });
+                        buildSupplierChart(rows);
+                        
+                        document.getElementById('kpi-top-supplier-name').innerText = rows[0].SupplierName;
+                        document.getElementById('kpi-top-supplier-val').innerText = '$' + Math.round(rows[0].Revenue / 1000) + 'k';
+                    }
+
+                    // 4. Process Employee Performance Funnel
+                    if (employeesResult.length > 0) {
+                        const cols = employeesResult[0].columns;
+                        const rows = employeesResult[0].values.map(row => {
+                            let obj = {};
+                            cols.forEach((col, idx) => { obj[col] = row[idx]; });
+                            return obj;
+                        });
+                        buildFunnelChart(rows);
+
+                        document.getElementById('kpi-top-employee-name').innerText = rows[0].EmployeeName;
+                        document.getElementById('kpi-top-employee-val').innerText = '$' + Math.round(rows[0].Revenue / 1000) + 'k';
+                    }
+
+                    // 5. Process Country Box Plot Dispersion
+                    if (countryOrdersResult.length > 0) {
+                        const cols = countryOrdersResult[0].columns;
+                        const rows = countryOrdersResult[0].values.map(row => {
+                            let obj = {};
+                            cols.forEach((col, idx) => { obj[col] = row[idx]; });
+                            return obj;
+                        });
+                        buildBoxplotChart(rows);
+
+                        let maxVal = 0, bestCountry = "--";
+                        rows.forEach(r => {
+                            if (parseFloat(r.order_value) > maxVal) {
+                                maxVal = parseFloat(r.order_value);
+                                bestCountry = r.Country;
+                            }
+                        });
+                        document.getElementById('kpi-top-country-name').innerText = bestCountry;
+                        document.getElementById('kpi-top-country-val').innerText = '$' + Math.round(maxVal / 1000) + 'k max';
+                    }
+
+                } catch (err) {
+                    document.getElementById('chart-loader').classList.add('hidden');
+                    showToast("SQL Execution Error: " + err.message);
+                }
+            }, 80);
+        }
+
+        // Rigorous calculation of customer analytics metrics (Top Customer & top 10 portfolio share)
+        function calculateCustomerKPIs(rows) {
+            if (rows.length === 0) return;
+            const topCust = rows[0];
+            document.getElementById('kpi-top-customer-name').innerText = `${topCust.CustomerName}`;
+            document.getElementById('kpi-top-customer-val').innerText = '$' + Math.round(parseFloat(topCust.TotalRevenue) / 1000) + '.0K';
+
+            const totalBook = rows.reduce((acc, curr) => acc + parseFloat(curr.TotalRevenue || 0), 0);
+            const top10Sum = rows.slice(0, 10).reduce((acc, curr) => acc + parseFloat(curr.TotalRevenue || 0), 0);
+            const sharePercentage = totalBook > 0 ? Math.round((top10Sum / totalBook) * 100) : 0;
+
+            document.getElementById('kpi-top-customer-share').innerText = `${sharePercentage}%`;
+            document.getElementById('kpi-top-customer-total').innerText = `of $${Math.round(totalBook / 1000)}K book`;
+        }
+
+        // Rigorous calculation of product analytics metrics (Top Product & lead share % of top 10)
+        function calculateProductKPIs(rows) {
+            if (rows.length === 0) return;
+            const topProd = rows[0];
+            document.getElementById('kpi-top-product-name').innerText = `${topProd.ProductName}`;
+            document.getElementById('kpi-top-product-val').innerText = '$' + Math.round(parseFloat(topProd.TotalRevenue) / 1000) + '.0K';
+
+            const top10Sum = rows.slice(0, 10).reduce((acc, curr) => acc + parseFloat(curr.TotalRevenue || 0), 0);
+            const leaderShare = top10Sum > 0 ? Math.round((parseFloat(topProd.TotalRevenue) / top10Sum) * 100) : 0;
+
+            document.getElementById('kpi-top-product-share').innerText = `${leaderShare}%`;
+            document.getElementById('kpi-top-product-total').innerText = `of $${Math.round(top10Sum / 1000)}K top 10`;
+        }
+
+        // Product Treemap Chart (Navy palette with distinctive Brick Red focus element)
+        function buildTreemap(data) {
+            if (treemapChart) {
+                treemapChart.destroy();
+            }
+
+            const seriesData = data.map((row, index) => {
+                return {
+                    x: `${row.ProductName}`,
+                    y: parseFloat(row.TotalRevenue || 0)
+                };
+            }).filter(item => item.y > 0).slice(0, 10);
+
+            const options = {
+                series: [{ data: seriesData }],
+                legend: { show: false },
+                chart: {
+                    height: '100%',
+                    type: 'treemap',
+                    toolbar: { show: false },
+                    fontFamily: 'Georgia, serif',
+                    foreColor: '#94a3b8'
+                },
+                theme: { mode: 'dark' },
+                colors: [
+                    '#b91c1c', '#1e293b', '#334155', '#475569', 
+                    '#1e3a8a', '#1d4ed8', '#1e40af', '#475569',
+                    '#334155', '#1e293b'
+                ],
+                plotOptions: {
+                    treemap: {
+                        distributed: true,
+                        enableShades: false
+                    }
+                },
+                tooltip: {
+                    theme: 'dark',
+                    y: {
+                        formatter: function(val) {
+                            return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                        }
+                    }
+                },
+                dataLabels: {
+                    enabled: true,
+                    style: {
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        colors: ['#ffffff']
+                    },
+                    formatter: function(text, op) {
+                        return [text, '$' + Math.round(op.value/1000) + 'K']
+                    }
+                }
+            };
+
+            const container = document.querySelector("#treemap-chart-container");
+            container.innerHTML = '';
+            
+            treemapChart = new ApexCharts(container, options);
+            treemapChart.render();
+        }
+
+        // Customer Horizontal Bar Chart (Highlighting rank #1 in signature Brick Red, other bars in Slate Navy)
+        function buildHorizontalBarChart(data) {
+            if (horizontalBarChart) {
+                horizontalBarChart.destroy();
+            }
+
+            const limitedData = data.slice(0, 8);
+            const categories = limitedData.map(row => row.CustomerName);
+            const revenues = limitedData.map(row => parseFloat(row.TotalRevenue || 0));
+
+            const options = {
+                series: [{
+                    name: 'Cumulative Sales',
+                    data: revenues
+                }],
+                chart: {
+                    type: 'bar',
+                    height: '100%',
+                    toolbar: { show: false },
+                    fontFamily: 'Georgia, serif',
+                    foreColor: '#94a3b8'
+                },
+                theme: { mode: 'dark' },
+                plotOptions: {
+                    bar: {
+                        borderRadius: 0,
+                        horizontal: true,
+                        barHeight: '60%',
+                        distributed: true,
+                        dataLabels: { position: 'right' }
+                    }
+                },
+                colors: [
+                    '#b91c1c', '#334155', '#1e293b', '#1e293b',
+                    '#1e293b', '#1e293b', '#1e293b', '#111827'
+                ],
+                dataLabels: {
+                    enabled: true,
+                    formatter: function (val) {
+                        return "$" + (val/1000).toFixed(1) + "K";
+                    },
+                    offsetX: 35,
+                    style: {
+                        fontSize: '10px',
+                        colors: ["#ffffff"],
+                        fontWeight: '600'
+                    }
+                },
+                xaxis: {
+                    categories: categories,
+                    labels: {
+                        formatter: function (val) {
+                            return "$" + Math.round(val/1000) + "K";
+                        },
+                        style: { colors: '#94a3b8' }
+                    },
+                    axisBorder: { show: true, color: '#1e294b' }
+                },
+                yaxis: {
+                    labels: {
+                        style: { fontSize: '10px', colors: '#ffffff' }
+                    }
+                },
+                grid: {
+                    borderColor: '#1e294b',
+                    strokeDashArray: 4,
+                    xaxis: { lines: { show: true } }
+                },
+                tooltip: {
+                    theme: 'dark',
+                    y: {
+                        formatter: function(val) {
+                            return '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                        }
+                    }
+                }
+            };
+
+            const container = document.querySelector("#horizontal-bar-chart-container");
+            container.innerHTML = '';
+            
+            horizontalBarChart = new ApexCharts(container, options);
+            horizontalBarChart.render();
+        }
+
+        // Supplier Vertical Column Chart
+        function buildSupplierChart(data) {
+            if (supplierChart) {
+                supplierChart.destroy();
+            }
+
+            const limitedData = data.slice(0, 5);
+            const categories = limitedData.map(row => row.SupplierName);
+            const revenues = limitedData.map(row => parseFloat(row.Revenue || 0));
+
+            const options = {
+                series: [{
+                    name: 'Total Revenue Generated',
+                    data: revenues
+                }],
+                chart: {
+                    type: 'bar',
+                    height: '100%',
+                    toolbar: { show: false },
+                    fontFamily: 'Georgia, serif',
+                    foreColor: '#94a3b8'
+                },
+                theme: { mode: 'dark' },
+                plotOptions: {
+                    bar: {
+                        borderRadius: 0,
+                        columnWidth: '40%',
+                        dataLabels: { position: 'top' }
+                    }
+                },
+                colors: ['#0284c7'],
+                dataLabels: {
+                    enabled: true,
+                    formatter: function (val) {
+                        return "$" + Math.round(val/1000) + "K";
+                    },
+                    offsetY: -15,
+                    style: {
+                        fontSize: '9px',
+                        colors: ["#ffffff"],
+                        fontWeight: '600'
+                    }
+                },
+                xaxis: {
+                    categories: categories,
+                    labels: {
+                        show: true,
+                        style: { fontSize: '8px', colors: '#94a3b8' },
+                        rotate: -15,
+                        trim: true
+                    },
+                    axisBorder: { show: true, color: '#1e294b' }
+                },
+                yaxis: { show: false },
+                grid: { show: false },
+                tooltip: {
+                    theme: 'dark',
+                    y: {
+                        formatter: function(val) { return '$' + val.toLocaleString(); }
+                    }
+                }
+            };
+
+            const container = document.querySelector("#supplier-chart-container");
+            container.innerHTML = '';
+            
+            supplierChart = new ApexCharts(container, options);
+            supplierChart.render();
+        }
+
+        // Employee sales performance funnel chart
+        function buildFunnelChart(data) {
+            if (funnelChart) {
+                funnelChart.destroy();
+            }
+
+            const limitedData = data.slice(0, 4);
+            const names = limitedData.map(row => row.EmployeeName);
+            const revenues = limitedData.map(row => parseFloat(row.Revenue || 0));
+
+            const options = {
+                series: [{
+                    name: "Sales Pipeline",
+                    data: revenues,
+                }],
+                chart: {
+                    type: 'bar',
+                    height: '100%',
+                    toolbar: { show: false },
+                    fontFamily: 'Georgia, serif',
+                    foreColor: '#94a3b8'
+                },
+                theme: { mode: 'dark' },
+                plotOptions: {
+                    bar: {
+                        borderRadius: 0,
+                        horizontal: true,
+                        barHeight: '75%',
+                        isFunnel: true,
+                    },
+                },
+                dataLabels: {
+                    enabled: true,
+                    formatter: function (val, opt) {
+                        return opt.w.globals.labels[opt.dataPointIndex] + ': $' + Math.round(val/1000) + 'K';
+                    },
+                    style: {
+                        fontSize: '9px',
+                        fontFamily: 'Georgia, serif',
+                        colors: ['#ffffff']
+                    }
+                },
+                colors: ['#0f172a', '#1e293b', '#1e3a8a', '#0284c7'],
+                xaxis: {
+                    categories: names,
+                    labels: { show: false }
+                },
+                yaxis: { show: false },
+                legend: { show: false },
+                grid: { show: false },
+                tooltip: {
+                    theme: 'dark',
+                    y: {
+                        formatter: function(val) { return '$' + val.toLocaleString(); }
+                    }
+                }
+            };
+
+            const container = document.querySelector("#funnel-chart-container");
+            container.innerHTML = '';
+
+            funnelChart = new ApexCharts(container, options);
+            funnelChart.render();
+        }
+
+        // Box plot comparing order distributions across geographic areas
+        function buildBoxplotChart(data) {
+            if (boxplotChart) {
+                boxplotChart.destroy();
+            }
+
+            const countryGroups = {};
+            data.forEach(row => {
+                const country = row.Country || 'Other';
+                const val = parseFloat(row.order_value || 0);
+                if (!countryGroups[country]) {
+                    countryGroups[country] = [];
+                }
+                countryGroups[country].push(val);
+            });
+
+            const boxplotSeriesData = [];
+            for (const country in countryGroups) {
+                const values = countryGroups[country].sort((a, b) => a - b);
+                if (values.length < 2) continue;
+
+                const min = values[0];
+                const max = values[values.length - 1];
+                const q1 = getPercentile(values, 0.25);
+                const median = getPercentile(values, 0.50);
+                const q3 = getPercentile(values, 0.75);
+
+                boxplotSeriesData.push({
+                    x: country,
+                    y: [
+                        parseFloat(min.toFixed(1)),
+                        parseFloat(q1.toFixed(1)),
+                        parseFloat(median.toFixed(1)),
+                        parseFloat(q3.toFixed(1)),
+                        parseFloat(max.toFixed(1))
+                    ]
+                });
+            }
+
+            const options = {
+                series: [{
+                    type: 'boxPlot',
+                    data: boxplotSeriesData.slice(0, 4)
+                }],
+                chart: {
+                    type: 'boxPlot',
+                    height: '100%',
+                    toolbar: { show: false },
+                    fontFamily: 'Georgia, serif',
+                    foreColor: '#94a3b8'
+                },
+                theme: { mode: 'dark' },
+                plotOptions: {
+                    boxPlot: {
+                        colors: {
+                            upper: '#0284c7',
+                            lower: '#1e3a8a'
+                        }
+                    }
+                },
+                stroke: { colors: ['#ffffff'] },
+                grid: { show: false },
+                xaxis: {
+                    type: 'category',
+                    labels: { style: { fontSize: '9px', colors: '#ffffff' } }
+                },
+                yaxis: { show: false },
+                tooltip: { theme: 'dark', shared: false, intersect: true }
+            };
+
+            const container = document.querySelector("#boxplot-chart-container");
+            container.innerHTML = '';
+
+            boxplotChart = new ApexCharts(container, options);
+            boxplotChart.render();
+        }
+
+        function getPercentile(arr, q) {
+            const pos = (arr.length - 1) * q;
+            const base = Math.floor(pos);
+            const rest = pos - base;
+            if (arr[base + 1] !== undefined) {
+                return arr[base] + rest * (arr[base + 1] - arr[base]);
+            } else {
+                return arr[base];
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast-message');
+            toast.innerText = msg;
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        // GENERATE MODEL DATA IN MEMORY (Demo Database Seeder)
+        function loadSampleDatabase() {
+            if (!SQLInstance) {
+                showToast("System is initializing database, please wait.");
+                return;
+            }
+
+            const db = new SQLInstance.Database();
+            
+            db.run(`
+                CREATE TABLE Categories (
+                    CategoryID INTEGER PRIMARY KEY,
+                    CategoryName TEXT,
+                    Description TEXT
+                );
+                
+                CREATE TABLE Suppliers (
+                    SupplierID INTEGER PRIMARY KEY,
+                    SupplierName TEXT,
+                    Country TEXT
+                );
+
+                CREATE TABLE Products (
+                    ProductID INTEGER PRIMARY KEY,
+                    ProductName TEXT,
+                    SupplierID INTEGER,
+                    CategoryID INTEGER,
+                    Unit TEXT,
+                    Price REAL,
+                    FOREIGN KEY (SupplierID) REFERENCES Suppliers (SupplierID),
+                    FOREIGN KEY (CategoryID) REFERENCES Categories (CategoryID)
+                );
+
+                CREATE TABLE OrderDetails (
+                    OrderDetailID INTEGER PRIMARY KEY,
+                    OrderID INTEGER,
+                    ProductID INTEGER,
+                    Quantity INTEGER,
+                    FOREIGN KEY (ProductID) REFERENCES Products (ProductID)
+                );
+
+                CREATE TABLE Customers (
+                    CustomerID TEXT PRIMARY KEY,
+                    CustomerName TEXT,
+                    City TEXT,
+                    Country TEXT
+                );
+
+                CREATE TABLE Employees (
+                    EmployeeID INTEGER PRIMARY KEY,
+                    LastName TEXT,
+                    FirstName TEXT
+                );
+
+                CREATE TABLE Orders (
+                    OrderID INTEGER PRIMARY KEY,
+                    CustomerID TEXT,
+                    EmployeeID INTEGER,
+                    OrderDate TEXT,
+                    FOREIGN KEY (CustomerID) REFERENCES Customers (CustomerID),
+                    FOREIGN KEY (EmployeeID) REFERENCES Employees (EmployeeID)
+                );
+            `);
+
+            // Seed Category Records
+            db.run(`
+                INSERT INTO Categories VALUES (1, 'Beverages', 'Soft drinks, coffees, teas, beers, and ales');
+                INSERT INTO Categories VALUES (2, 'Condiments', 'Sweet and savory sauces, relishes, spreads, and seasonings');
+                INSERT INTO Categories VALUES (3, 'Confections', 'Desserts, candies, and sweet breads');
+                INSERT INTO Categories VALUES (4, 'Dairy Products', 'Cheeses, milk, yogurts, and creams');
+            `);
+
+            // Seed Supplier Records
+            db.run(`
+                INSERT INTO Suppliers VALUES (1, 'Exotic Liquids', 'UK');
+                INSERT INTO Suppliers VALUES (2, 'New Orleans Delights', 'USA');
+                INSERT INTO Suppliers VALUES (3, 'Tokyo Traders', 'Japan');
+                INSERT INTO Suppliers VALUES (4, 'Cooperativa Cabras', 'Spain');
+            `);
+
+            // Seed Product Records (Matching Northwind standard representation)
+            db.run(`
+                INSERT INTO Products VALUES (1, 'Côte de Blaye', 1, 1, '750 ml', 263.50);
+                INSERT INTO Products VALUES (2, 'Thüringer Rostbratwurst', 2, 2, '500 g', 123.79);
+                INSERT INTO Products VALUES (3, 'Raclette Courdavault', 2, 4, '1 kg', 55.00);
+                INSERT INTO Products VALUES (4, 'Tarte au sucre', 3, 3, '48 pkgs.', 49.30);
+                INSERT INTO Products VALUES (5, 'Camembert Pierrot', 4, 4, '15 - 300 g', 34.00);
+                INSERT INTO Products VALUES (6, 'Alice Mutton', 1, 1, '20 - 1 kg tins', 39.00);
+                INSERT INTO Products VALUES (7, 'Mozzarella di Giovanni', 4, 4, '24 - 200 g', 34.80);
+                INSERT INTO Products VALUES (8, 'Vegie-spread', 3, 2, '15 - 625 g jars', 43.90);
+                INSERT INTO Products VALUES (9, 'Manjimup Dried Apples', 3, 3, '50 - 300 g pkgs', 53.00);
+            `);
+
+            // Seed Customers
+            db.run(`
+                INSERT INTO Customers VALUES ('ERNST', 'Ernst Handel', 'Graz', 'Austria');
+                INSERT INTO Customers VALUES ('MEREP', 'Mère Paillarde', 'Montreal', 'Canada');
+                INSERT INTO Customers VALUES ('SAVEA', 'Save-a-lot Markets', 'Boise', 'USA');
+                INSERT INTO Customers VALUES ('RATTC', 'Rattlesnake Canyon Grocery', 'Albuquerque', 'USA');
+                INSERT INTO Customers VALUES ('QUICK', 'QUICK-Stop', 'Kolkata', 'India');
+                INSERT INTO Customers VALUES ('QUEEN', 'Queen Cozinha', 'Sao Paulo', 'Brazil');
+            `);
+
+            // Seed Employees
+            db.run(`
+                INSERT INTO Employees VALUES (1, 'Peacock', 'Margaret');
+                INSERT INTO Employees VALUES (2, 'Leverling', 'Janet');
+                INSERT INTO Employees VALUES (3, 'Davolio', 'Nancy');
+                INSERT INTO Employees VALUES (4, 'Fuller', 'Andrew');
+            `);
+
+            // Seed Orders
+            db.run(`
+                INSERT INTO Orders VALUES (10248, 'ERNST', 1, '2026-06-01');
+                INSERT INTO Orders VALUES (10249, 'MEREP', 4, '2026-06-02');
+                INSERT INTO Orders VALUES (10250, 'SAVEA', 3, '2026-06-03');
+                INSERT INTO Orders VALUES (10251, 'RATTC', 2, '2026-06-04');
+                INSERT INTO Orders VALUES (10252, 'QUICK', 4, '2026-06-05');
+                INSERT INTO Orders VALUES (10253, 'QUEEN', 3, '2026-06-06');
+                
+                -- Extra orders to boost Ernst Handel cumulative total as top client ($35.6K)
+                INSERT INTO Orders VALUES (10254, 'ERNST', 1, '2026-06-07');
+                INSERT INTO Orders VALUES (10255, 'ERNST', 2, '2026-06-08');
+            `);
+
+            // Seed Order Details
+            db.run(`
+                -- Côte de Blaye ($63.0K gross)
+                INSERT INTO OrderDetails VALUES (1, 10248, 1, 120);
+                INSERT INTO OrderDetails VALUES (2, 10254, 1, 100);
+                INSERT INTO OrderDetails VALUES (3, 10255, 1, 20);
+
+                -- Thüringer Rostbratwurst
+                INSERT INTO OrderDetails VALUES (4, 10249, 2, 160);
+                INSERT INTO OrderDetails VALUES (5, 10250, 2, 70);
+
+                -- Other transaction items mapping values
+                INSERT INTO OrderDetails VALUES (6, 10251, 3, 300);
+                INSERT INTO OrderDetails VALUES (7, 10252, 4, 310);
+                INSERT INTO OrderDetails VALUES (8, 10253, 5, 450);
+                INSERT INTO OrderDetails VALUES (9, 10253, 6, 200);
+                INSERT INTO OrderDetails VALUES (10, 10253, 7, 300);
+                INSERT INTO OrderDetails VALUES (11, 10253, 8, 250);
+                INSERT INTO OrderDetails VALUES (12, 10253, 9, 200);
+            `);
+
+            activeDatabase = db;
+            onSuccess("demo.db");
+        }
+    </script>
+</body>
+</html>
